@@ -1,0 +1,52 @@
+{
+  "name": "agent-watcher",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real-time monitoring and visualization dashboard for Claude Code sessions",
+  "author": "develinu <iwlee.dev@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/develinu/agent-watcher.git"
+  },
+  "keywords": [
+    "claude-code",
+    "agent-monitoring",
+    "session-visualization",
+    "workflow-analysis",
+    "developer-tools"
+  ],
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
+    "test": "npm run test -w server && npm run test -w client",
+    "start": "NODE_ENV=production node server/dist/index.js",
+    "lint": "npm run lint -w server && npm run lint -w client",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^9.1.2",
+    "eslint": "^10.1.0",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.8.1",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.58.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+services:
+  agent-watcher:
+    build: .
+    ports:
+      - "3001:3001"
+    volumes:
+      - ${HOME}/.claude:/root/.claude:ro
+    environment:
+      - CLAUDE_DIR=/root/.claude
+      - SERVER_PORT=3001
+      - ACTIVE_THRESHOLD_MS=60000
+      - ANALYSIS_PROVIDER=${ANALYSIS_PROVIDER:-anthropic}
+      - ANALYSIS_MODEL=${ANALYSIS_MODEL:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
