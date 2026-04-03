@@ -1,9 +1,110 @@
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Session, SessionSummary, ParsedMessage, Subagent } from "@agent-watcher/shared";
 import type { JournalRecord, UserRecord } from "@agent-watcher/shared";
 import { parseJsonlFile } from "./jsonl-parser.js";
 import { scanSubagents, readSubagentMeta } from "./file-scanner.js";
-import { generateSessionSummaryLlm } from "./llm-analyzer.js";
+import { generateSessionSummaryLlm, generateSessionSummaryLlmBackground } from "./llm-analyzer.js";
 import { config } from "../config.js";
+
+// ─── Concurrency helper ──────────────────────────────────
+
+async function parallelMap<T, R>(
+  items: readonly T[],
+  fn: (item: T) => Promise<R>,
+  concurrency: number
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let idx = 0;
+
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++;
+      results[i] = await fn(items[i]);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
+// ─── SessionSummary cache ─────────────────────────────────
+
+interface CachedSummaryEntry {
+  readonly summary: SessionSummary;
+  readonly fileSize: number;
+  readonly mtimeMs: number;
+}
+
+const summaryCache = new Map<string, CachedSummaryEntry>();
+
+async function getCachedSummary(
+  sessionId: string,
+  filePath: string
+): Promise<SessionSummary | null> {
+  const cached = summaryCache.get(sessionId);
+  if (!cached) return null;
+
+  try {
+    const s = await stat(filePath);
+    if (s.size === cached.fileSize && s.mtimeMs === cached.mtimeMs) {
+      // Update isActive (may change without file modification)
+      return { ...cached.summary, isActive: isSessionActive(cached.summary.lastActiveAt) };
+    }
+  } catch {
+    // File gone — evict
+    summaryCache.delete(sessionId);
+  }
+  return null;
+}
+
+function setCachedSummary(
+  sessionId: string,
+  summary: SessionSummary,
+  fileSize: number,
+  mtimeMs: number
+): void {
+  summaryCache.set(sessionId, { summary, fileSize, mtimeMs });
+}
+
+export function invalidateSummaryCache(sessionId: string): void {
+  summaryCache.delete(sessionId);
+}
+
+// ─── Disk-based summary cache (survives restarts) ─────────
+
+function getDiskCacheDir(): string {
+  return join(config.claudeDir, ".agent-watcher", "summary-cache");
+}
+
+function diskCachePath(sessionId: string): string {
+  return join(getDiskCacheDir(), `${sessionId}.json`);
+}
+
+interface DiskCachedSummary {
+  readonly summary: SessionSummary;
+  readonly fileSize: number;
+  readonly mtimeMs: number;
+}
+
+async function readDiskCache(sessionId: string): Promise<DiskCachedSummary | null> {
+  try {
+    const raw = await readFile(diskCachePath(sessionId), "utf-8");
+    return JSON.parse(raw) as DiskCachedSummary;
+  } catch {
+    return null;
+  }
+}
+
+async function writeDiskCache(sessionId: string, entry: DiskCachedSummary): Promise<void> {
+  try {
+    await mkdir(getDiskCacheDir(), { recursive: true });
+    await writeFile(diskCachePath(sessionId), JSON.stringify(entry), "utf-8");
+  } catch {
+    // Best-effort — don't fail the request
+  }
+}
 
 function extractMessages(records: readonly JournalRecord[]): readonly ParsedMessage[] {
   const messages: ParsedMessage[] = [];
@@ -147,6 +248,27 @@ export async function getSessionSummary(
   sessionFilePath: string,
   subagentDir: string | null
 ): Promise<SessionSummary> {
+  // 1. Memory cache (fastest)
+  const memCached = await getCachedSummary(sessionId, sessionFilePath);
+  if (memCached) return memCached;
+
+  // 2. Disk cache (survives restarts)
+  const fileStat = await stat(sessionFilePath);
+  const diskCached = await readDiskCache(sessionId);
+  if (
+    diskCached &&
+    diskCached.fileSize === fileStat.size &&
+    diskCached.mtimeMs === fileStat.mtimeMs
+  ) {
+    const restored = {
+      ...diskCached.summary,
+      isActive: isSessionActive(diskCached.summary.lastActiveAt),
+    };
+    setCachedSummary(sessionId, restored, fileStat.size, fileStat.mtimeMs);
+    return restored;
+  }
+
+  // 3. Full parse (cold start)
   const records = await parseJsonlFile(sessionFilePath);
   const tokens = aggregateTokens(records);
   const meta = extractMetadata(records);
@@ -158,13 +280,13 @@ export async function getSessionSummary(
     subagentCount = subs.filter((s) => !s.agentId.startsWith("acompact-")).length;
   }
 
-  const summary = await generateSessionSummary(sessionId, records);
+  const summaryText = await generateSessionSummary(sessionId, records);
 
-  return {
+  const result: SessionSummary = {
     id: sessionId,
     projectId,
     ...meta,
-    summary,
+    summary: summaryText,
     messageCount,
     totalInputTokens: tokens.input,
     totalOutputTokens: tokens.output,
@@ -173,51 +295,60 @@ export async function getSessionSummary(
     subagentCount,
     isActive: isSessionActive(meta.lastActiveAt),
   };
+
+  // Populate both caches
+  setCachedSummary(sessionId, result, fileStat.size, fileStat.mtimeMs);
+  writeDiskCache(sessionId, {
+    summary: result,
+    fileSize: fileStat.size,
+    mtimeMs: fileStat.mtimeMs,
+  }).catch(() => {});
+
+  return result;
 }
 
 async function loadSubagents(subagentDir: string): Promise<readonly Subagent[]> {
   const files = await scanSubagents(subagentDir);
-  const subagents: Subagent[] = [];
+  const filtered = files.filter((f) => !f.agentId.startsWith("acompact-"));
 
-  for (const file of files) {
-    // Skip auto-compact agents
-    if (file.agentId.startsWith("acompact-")) continue;
+  return parallelMap(
+    filtered,
+    async (file) => {
+      const meta = file.metaPath ? await readSubagentMeta(file.metaPath) : null;
+      let messageCount = 0;
+      let totalInput = 0;
+      let totalOutput = 0;
+      let agentModel: string | undefined;
+      let lastActive: string | null = null;
 
-    const meta = file.metaPath ? await readSubagentMeta(file.metaPath) : null;
-    let messageCount = 0;
-    let totalInput = 0;
-    let totalOutput = 0;
-    let agentModel: string | undefined;
-    let lastActive: string | null = null;
+      if (file.logPath) {
+        const records = await parseJsonlFile(file.logPath);
+        messageCount = records.filter((r) => r.type === "user" || r.type === "assistant").length;
+        const tokens = aggregateTokens(records);
+        totalInput = tokens.input;
+        totalOutput = tokens.output;
 
-    if (file.logPath) {
-      const records = await parseJsonlFile(file.logPath);
-      messageCount = records.filter((r) => r.type === "user" || r.type === "assistant").length;
-      const tokens = aggregateTokens(records);
-      totalInput = tokens.input;
-      totalOutput = tokens.output;
-
-      for (const r of records) {
-        if (r.type === "assistant") {
-          if (!agentModel) agentModel = r.message.model;
-          lastActive = r.timestamp;
+        for (const r of records) {
+          if (r.type === "assistant") {
+            if (!agentModel) agentModel = r.message.model;
+            lastActive = r.timestamp;
+          }
         }
       }
-    }
 
-    subagents.push({
-      agentId: file.agentId,
-      agentType: meta?.agentType ?? "unknown",
-      description: meta?.description ?? "",
-      messageCount,
-      totalInputTokens: totalInput,
-      totalOutputTokens: totalOutput,
-      model: agentModel,
-      lastActiveAt: lastActive,
-    });
-  }
-
-  return subagents;
+      return {
+        agentId: file.agentId,
+        agentType: meta?.agentType ?? "unknown",
+        description: meta?.description ?? "",
+        messageCount,
+        totalInputTokens: totalInput,
+        totalOutputTokens: totalOutput,
+        model: agentModel,
+        lastActiveAt: lastActive,
+      };
+    },
+    8
+  );
 }
 
 function stripSystemTags(text: string): string {
@@ -324,12 +455,19 @@ async function generateSessionSummary(
   sessionId: string,
   records: readonly JournalRecord[]
 ): Promise<string> {
+  // Try cached LLM summary (cache lookup only — no blocking LLM call)
   try {
     const llmSummary = await generateSessionSummaryLlm(sessionId, records);
     if (llmSummary) return llmSummary;
   } catch {
     // LLM unavailable — fall through to regex fallback
   }
+
+  // Return fallback immediately, trigger LLM in background for next request
+  generateSessionSummaryLlmBackground(sessionId, records).catch(() => {
+    /* best-effort */
+  });
+
   return generateSessionSummaryFallback(records);
 }
 

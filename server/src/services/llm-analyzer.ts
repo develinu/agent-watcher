@@ -167,6 +167,42 @@ function condenseTurns(records: readonly JournalRecord[]): readonly CondensedTur
   return turns;
 }
 
+// ─── Language detection ───────────────────────────────────
+
+function containsKorean(text: string): boolean {
+  return /[\uAC00-\uD7A3]/.test(text);
+}
+
+function containsJapanese(text: string): boolean {
+  return /[\u3040-\u309F\u30A0-\u30FF]/.test(text);
+}
+
+function containsChinese(text: string): boolean {
+  return /[\u4E00-\u9FFF]/.test(text) && !containsJapanese(text);
+}
+
+type DetectedLang = "ko" | "ja" | "zh" | "en";
+
+function detectLanguage(texts: readonly string[]): DetectedLang {
+  const joined = texts.join(" ");
+  if (containsKorean(joined)) return "ko";
+  if (containsJapanese(joined)) return "ja";
+  if (containsChinese(joined)) return "zh";
+  return "en";
+}
+
+const LANG_NAMES: Record<DetectedLang, string> = {
+  ko: "Korean",
+  ja: "Japanese",
+  zh: "Chinese",
+  en: "English",
+};
+
+function langInstruction(lang: DetectedLang): string {
+  if (lang === "en") return "";
+  return `\n\n⚠️ CRITICAL: The user messages are in ${LANG_NAMES[lang]}. You MUST write ALL summaries and titles in ${LANG_NAMES[lang]}. Do NOT use English.`;
+}
+
 // ─── Prompts ───────────────────────────────────────────────
 
 const PHASE_TYPES: readonly PhaseType[] = [
@@ -196,7 +232,7 @@ function turnsToJson(turns: readonly CondensedTurn[]) {
   }));
 }
 
-function buildFullPrompt(turns: readonly CondensedTurn[]): string {
+function buildFullPrompt(turns: readonly CondensedTurn[], lang: DetectedLang): string {
   return `You are a workflow analyzer for a Claude Code session. Analyze the conversation turns and group them into semantic phases that represent distinct units of work.
 
 ## Input
@@ -251,13 +287,14 @@ Rules:
 - Turn indices within a phase must be contiguous unless representing branched work
 - dependsOn references other phase ids (use [] for the first phase)
 - Keep titles under 60 characters
-- Summaries should be concise bullet-point style (no period at end)`;
+- Summaries should be concise bullet-point style (no period at end)${langInstruction(lang)}`;
 }
 
 function buildIncrementalPrompt(
   previousPhases: readonly AnalyzedPhase[],
   lastPhaseTurns: readonly CondensedTurn[],
-  newTurns: readonly CondensedTurn[]
+  newTurns: readonly CondensedTurn[],
+  lang: DetectedLang
 ): string {
   const phasesSummary = previousPhases.map((p) => ({
     id: p.id,
@@ -319,7 +356,7 @@ Rules:
 - lastPhaseUpdate.mergedTurnIndices: turn indices from new turns that merge into the last phase (can be empty [])
 - Every new turn index must appear in either mergedTurnIndices or exactly one newPhases entry
 - Keep titles under 60 characters
-- Summaries should be concise bullet-point style (no period at end)`;
+- Summaries should be concise bullet-point style (no period at end)${langInstruction(lang)}`;
 }
 
 // ─── Response parsing ──────────────────────────────────────
@@ -449,14 +486,15 @@ export async function analyzeSession(
     return cached.analysis;
   }
 
+  const lang = detectLanguage(turns.map((t) => t.userMessage));
   let phases: readonly AnalyzedPhase[];
 
   // Incremental analysis — previous analysis exists with fewer turns
   if (cached && cached.turnCount < turns.length && cached.analysis.phases.length > 0) {
-    phases = await runIncrementalAnalysis(cached.analysis.phases, cached.turnCount, turns);
+    phases = await runIncrementalAnalysis(cached.analysis.phases, cached.turnCount, turns, lang);
   } else {
     // Full analysis — first time or cache is invalid
-    const text = await callLlm(buildFullPrompt(turns), 4096);
+    const text = await callLlm(buildFullPrompt(turns, lang), 4096);
     phases = parseFullResponse(text);
   }
 
@@ -473,7 +511,8 @@ export async function analyzeSession(
 async function runIncrementalAnalysis(
   previousPhases: readonly AnalyzedPhase[],
   previousTurnCount: number,
-  allTurns: readonly CondensedTurn[]
+  allTurns: readonly CondensedTurn[],
+  lang: DetectedLang
 ): Promise<readonly AnalyzedPhase[]> {
   const newTurns = allTurns.slice(previousTurnCount);
   if (newTurns.length === 0) return previousPhases;
@@ -487,7 +526,7 @@ async function runIncrementalAnalysis(
   );
   const lastPhaseTurns = allTurns.slice(contextStartIdx, previousTurnCount);
 
-  const prompt = buildIncrementalPrompt(previousPhases, lastPhaseTurns, newTurns);
+  const prompt = buildIncrementalPrompt(previousPhases, lastPhaseTurns, newTurns, lang);
   const text = await callLlm(prompt, 2048);
   const incremental = parseIncrementalResponse(text);
 
@@ -515,6 +554,10 @@ async function writeCachedSummary(
   await writeFile(path, summary, "utf-8");
 }
 
+/**
+ * Returns cached LLM summary if available. Does NOT trigger LLM call.
+ * Use this in the hot path (project/session listing) to avoid blocking.
+ */
 export async function generateSessionSummaryLlm(
   sessionId: string,
   records: readonly JournalRecord[]
@@ -522,24 +565,48 @@ export async function generateSessionSummaryLlm(
   if (!isAnalysisAvailable()) return null;
 
   const messageCount = records.filter((r) => r.type === "user" || r.type === "assistant").length;
+  return readCachedSummary(sessionId, messageCount);
+}
+
+// Track in-flight LLM summary requests to prevent duplicates
+const inflightSummaries = new Set<string>();
+
+/**
+ * Generate LLM summary in the background (fire-and-forget).
+ * Skips if already cached or if a request is in-flight.
+ */
+export async function generateSessionSummaryLlmBackground(
+  sessionId: string,
+  records: readonly JournalRecord[]
+): Promise<void> {
+  if (!isAnalysisAvailable()) return;
+
+  const messageCount = records.filter((r) => r.type === "user" || r.type === "assistant").length;
 
   const cached = await readCachedSummary(sessionId, messageCount);
-  if (cached) return cached;
+  if (cached) return;
 
-  const userMessages: string[] = [];
-  for (const record of records) {
-    if (record.type === "user" && !record.isSidechain) {
-      const text = extractUserText(record);
-      if (text.length > 0) {
-        userMessages.push(text.slice(0, 150));
+  const key = `${sessionId}_${messageCount}`;
+  if (inflightSummaries.has(key)) return;
+  inflightSummaries.add(key);
+
+  try {
+    const userMessages: string[] = [];
+    for (const record of records) {
+      if (record.type === "user" && !record.isSidechain) {
+        const text = extractUserText(record);
+        if (text.length > 0) {
+          userMessages.push(text.slice(0, 150));
+        }
       }
     }
-  }
 
-  if (userMessages.length === 0) return null;
+    if (userMessages.length === 0) return;
 
-  const summary = await callLlm(
-    `Summarize this coding session in ONE concise bullet-point phrase (not a sentence, no period).
+    const lang = detectLanguage(userMessages);
+
+    const summary = await callLlm(
+      `Summarize this coding session in ONE concise bullet-point phrase (not a sentence, no period).
 Match the language of the user messages (Korean for Korean, English for English, etc.).
 Keep it under 80 characters. Focus on what was accomplished, not process.
 
@@ -552,16 +619,17 @@ Examples:
 User messages from the session:
 ${userMessages.map((m, i) => `[${i + 1}] ${m}`).join("\n")}
 
-Return ONLY the summary phrase, nothing else.`,
-    256
-  );
+Return ONLY the summary phrase, nothing else.${langInstruction(lang)}`,
+      256
+    );
 
-  const trimmed = summary.trim();
-  if (trimmed.length > 0) {
-    await writeCachedSummary(sessionId, messageCount, trimmed);
+    const trimmed = summary.trim();
+    if (trimmed.length > 0) {
+      await writeCachedSummary(sessionId, messageCount, trimmed);
+    }
+  } finally {
+    inflightSummaries.delete(key);
   }
-
-  return trimmed || null;
 }
 
 export { isAnalysisAvailable } from "./llm-provider.js";

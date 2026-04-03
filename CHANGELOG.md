@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Session summary caching** — Two-tier cache (memory + disk) validated by file stat; eliminates redundant JSONL parsing on repeated requests and survives server restarts
+- **Parallel data loading** — Project, session, and subagent loops now use concurrent `parallelMap` (6/10/8 workers) instead of sequential `for...of`
+- **Non-blocking LLM summaries** — Summary requests return regex fallback immediately; LLM results are generated in the background and served on the next request
+- **Cache invalidation** — WebSocket file-change events automatically evict stale session summary caches
+- **Language-aware LLM prompts** — Auto-detect user language (Korean/Japanese/Chinese) from messages and inject explicit language constraint into all LLM prompts (workflow phases, session summaries)
+
 ## [0.1.0] - 2026-03-31
 
 ### Added

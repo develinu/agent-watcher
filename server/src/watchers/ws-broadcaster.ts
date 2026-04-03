@@ -4,6 +4,7 @@ import type { IncomingMessage } from "node:http";
 import type { FileChangeEvent, FileWatcher } from "./file-watcher.js";
 import type { WsEvent } from "@agent-watcher/shared";
 import { getActiveSessions } from "../services/active-detector.js";
+import { invalidateSummaryCache } from "../services/session-service.js";
 import { config } from "../config.js";
 
 const ALLOWED_ORIGINS = new Set([
@@ -51,6 +52,9 @@ export class WsBroadcaster {
   }
 
   private onSessionUpdated(event: FileChangeEvent): void {
+    // Invalidate session summary cache so next request re-parses
+    invalidateSummaryCache(event.sessionId);
+
     const newAssistantMessages = event.records.filter((r) => r.type === "assistant");
     let inputDelta = 0;
     let outputDelta = 0;

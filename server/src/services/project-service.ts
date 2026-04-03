@@ -3,6 +3,28 @@ import { scanProjects, type ProjectIndex } from "./file-scanner.js";
 import { getSessionSummary } from "./session-service.js";
 import { config } from "../config.js";
 
+// ─── Concurrency helper ──────────────────────────────────
+
+async function parallelMap<T, R>(
+  items: readonly T[],
+  fn: (item: T) => Promise<R>,
+  concurrency: number
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let idx = 0;
+
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++;
+      results[i] = await fn(items[i]);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 let projectCache: ReadonlyMap<string, ProjectIndex> | null = null;
 let lastCacheTime = 0;
 const CACHE_TTL_MS = 10_000; // 10 seconds, synced with ws-broadcaster interval
@@ -23,32 +45,36 @@ export async function getProjectIndex(): Promise<ReadonlyMap<string, ProjectInde
 
 export async function getProjects(): Promise<readonly ProjectSummary[]> {
   const index = await getProjectIndex();
-  const summaries: ProjectSummary[] = [];
+  const entries = Array.from(index.entries());
 
-  for (const [projectId, project] of index) {
-    const sessionSummaries = await getSessionSummariesForProject(projectId, project);
-    const totalInput = sessionSummaries.reduce((sum, s) => sum + s.totalInputTokens, 0);
-    const totalOutput = sessionSummaries.reduce((sum, s) => sum + s.totalOutputTokens, 0);
-    const activeCount = sessionSummaries.filter((s) => s.isActive).length;
+  const summaries = await parallelMap(
+    entries,
+    async ([projectId, project]) => {
+      const sessionSummaries = await getSessionSummariesForProject(projectId, project);
+      const totalInput = sessionSummaries.reduce((sum, s) => sum + s.totalInputTokens, 0);
+      const totalOutput = sessionSummaries.reduce((sum, s) => sum + s.totalOutputTokens, 0);
+      const activeCount = sessionSummaries.filter((s) => s.isActive).length;
 
-    const lastActiveSession = sessionSummaries
-      .filter((s) => s.lastActiveAt)
-      .sort((a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime())[0];
+      const lastActiveSession = sessionSummaries
+        .filter((s) => s.lastActiveAt)
+        .sort((a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime())[0];
 
-    const cwd = sessionSummaries[0]?.cwd ?? "";
-    const name = cwd ? cwd.split("/").slice(-2).join("/") : decodeProjectId(projectId);
+      const cwd = sessionSummaries[0]?.cwd ?? "";
+      const name = cwd ? cwd.split("/").slice(-2).join("/") : decodeProjectId(projectId);
 
-    summaries.push({
-      id: projectId,
-      path: cwd,
-      name,
-      sessionCount: sessionSummaries.length,
-      totalInputTokens: totalInput,
-      totalOutputTokens: totalOutput,
-      lastActiveAt: lastActiveSession?.lastActiveAt ?? null,
-      activeSessionCount: activeCount,
-    });
-  }
+      return {
+        id: projectId,
+        path: cwd,
+        name,
+        sessionCount: sessionSummaries.length,
+        totalInputTokens: totalInput,
+        totalOutputTokens: totalOutput,
+        lastActiveAt: lastActiveSession?.lastActiveAt ?? null,
+        activeSessionCount: activeCount,
+      };
+    },
+    6
+  );
 
   return summaries.sort((a, b) => {
     if (a.activeSessionCount !== b.activeSessionCount)
@@ -95,23 +121,21 @@ async function getSessionSummariesForProject(
   projectId: string,
   project: ProjectIndex
 ): Promise<SessionSummary[]> {
-  const summaries: SessionSummary[] = [];
+  const entries = Array.from(project.sessions.entries());
 
-  for (const [sessionId, meta] of project.sessions) {
-    try {
-      const summary = await getSessionSummary(
-        projectId,
-        sessionId,
-        meta.filePath,
-        meta.subagentDir
-      );
-      summaries.push(summary);
-    } catch {
-      // Skip unreadable sessions
-    }
-  }
+  const results = await parallelMap(
+    entries,
+    async ([sessionId, meta]) => {
+      try {
+        return await getSessionSummary(projectId, sessionId, meta.filePath, meta.subagentDir);
+      } catch {
+        return null; // Skip unreadable sessions
+      }
+    },
+    10
+  );
 
-  return summaries;
+  return results.filter((s): s is SessionSummary => s !== null);
 }
 
 function decodeProjectId(id: string): string {
