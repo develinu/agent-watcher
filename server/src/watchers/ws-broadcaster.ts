@@ -8,7 +8,7 @@ import { invalidateSummaryCache } from "../services/session-service.js";
 import { config } from "../config.js";
 
 const ALLOWED_ORIGINS = new Set([
-  "http://localhost:5173",
+  "http://localhost:9999",
   `http://localhost:${config.serverPort}`,
   `http://127.0.0.1:${config.serverPort}`,
 ]);

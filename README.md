@@ -47,7 +47,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Open http://localhost:5173 in your browser.
+Open http://localhost:9999 in your browser.
 
 ## Configuration
 
@@ -60,7 +60,7 @@ CLAUDE_DIR=~/.claude
 # Server port
 SERVER_PORT=3001
 
-# Session active threshold (ms)
+# Session active threshold (ms, default: 60000 = 1min)
 ACTIVE_THRESHOLD_MS=60000
 
 # Analysis provider: anthropic | openai | gemini
@@ -71,6 +71,9 @@ ANALYSIS_PROVIDER=anthropic
 #   openai    → gpt-4o-mini
 #   gemini    → gemini-2.0-flash
 ANALYSIS_MODEL=
+
+# Debounce (ms) before LLM workflow re-analysis (default: 3000)
+VITE_ANALYSIS_DEBOUNCE_MS=3000
 
 # Provider API keys (only the selected provider's key is required)
 ANTHROPIC_API_KEY=

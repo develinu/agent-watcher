@@ -122,12 +122,14 @@ New messages arrive (WebSocket) ──▶ SessionWorkflow detects length change
 | Module                          | Responsibility                                           |
 | ------------------------------- | -------------------------------------------------------- |
 | `config.ts`                     | Environment variables, model pricing, cost estimation    |
+| `middleware/validate-params.ts` | Parameter validation (projectId, sessionId regex check)  |
 | `routes/projects.ts`            | `GET /api/projects`, `GET /api/projects/:id`             |
 | `routes/sessions.ts`            | `GET /api/sessions/:id`, `/timeline`, `/analyze`         |
 | `routes/analytics.ts`           | `GET /api/analytics/tokens`, `/active`                   |
 | `services/project-service.ts`   | Scans filesystem, builds project index (parallel)        |
 | `services/session-service.ts`   | Parses sessions, two-tier caching, summary generation    |
-| `services/jsonl-parser.ts`      | JSONL parsing (full + tail)                              |
+| `services/file-scanner.ts`      | Project/session/subagent filesystem scanning             |
+| `services/jsonl-parser.ts`      | JSONL parsing (full + tail with offset tracking)         |
 | `services/llm-provider.ts`      | Multi-provider LLM abstraction (Anthropic/OpenAI/Gemini) |
 | `services/llm-analyzer.ts`      | Workflow phase analysis, session summaries               |
 | `services/analytics-service.ts` | Token analytics, cost aggregation                        |
@@ -137,27 +139,40 @@ New messages arrive (WebSocket) ──▶ SessionWorkflow detects length change
 
 ### Client
 
-| Module                   | Responsibility                             |
-| ------------------------ | ------------------------------------------ |
-| `pages/DashboardPage`    | Project list overview                      |
-| `pages/ProjectPage`      | Single project with session workflow graph |
-| `pages/SessionPage`      | Session detail with phase workflow graph   |
-| `pages/AnalyticsPage`    | Token usage charts and cost analysis       |
-| `components/workflow/*`  | React Flow graph components                |
-| `hooks/useWebSocket`     | WebSocket connection with auto-reconnect   |
-| `lib/workflow-graph.ts`  | Phase detection, graph layout (dagre)      |
-| `lib/cost-calculator.ts` | Client-side cost estimation                |
-| `lib/format.ts`          | Number/date formatting utilities           |
+| Module                                 | Responsibility                                  |
+| -------------------------------------- | ----------------------------------------------- |
+| `pages/DashboardPage`                  | Project list overview                           |
+| `pages/ProjectPage`                    | Single project with session list/workflow graph |
+| `pages/SessionPage`                    | Session detail with phase workflow graph        |
+| `pages/AnalyticsPage`                  | Token usage charts and cost analysis            |
+| `components/workflow/WorkflowGraph`    | Core React Flow graph renderer                  |
+| `components/workflow/PhaseNode`        | Phase node in session workflow                  |
+| `components/workflow/SessionFlowNode`  | Session node in project workflow                |
+| `components/workflow/SessionWorkflow`  | Session-level phase visualization               |
+| `components/workflow/ProjectWorkflow`  | Project-level session visualization             |
+| `components/workflow/DetailPanel`      | Phase/session detail sidebar                    |
+| `components/workflow/AutoFollowToggle` | Auto-focus toggle for latest node               |
+| `components/common/Badge`              | Status badge with color variants                |
+| `components/common/StatusIndicator`    | Active/inactive status dot                      |
+| `components/common/LoadingSpinner`     | Loading state indicator                         |
+| `components/layout/Layout`             | Root layout with sidebar                        |
+| `components/layout/Sidebar`            | Navigation sidebar with connection status       |
+| `hooks/useWebSocket`                   | WebSocket connection with auto-reconnect        |
+| `hooks/useWsContext`                   | WebSocket React context provider/consumer       |
+| `lib/api.ts`                           | Typed HTTP client for REST API                  |
+| `lib/workflow-graph.ts`                | Phase detection, graph layout (dagre)           |
+| `lib/cost-calculator.ts`               | Client-side cost estimation                     |
+| `lib/format.ts`                        | Number/date formatting utilities                |
 
 ### Shared Types
 
-| File           | Types                                                                    |
-| -------------- | ------------------------------------------------------------------------ |
-| `session.ts`   | `JournalRecord`, `UserRecord`, `AssistantRecord`, `ContentBlock`         |
-| `analytics.ts` | `Session`, `SessionSummary`, `ParsedMessage`, `TokenUsage`, `CostRecord` |
-| `project.ts`   | `Project`, `ProjectSummary`, `ProjectDetail`                             |
-| `phase.ts`     | `PhaseType`, `AnalyzedPhase`, `SessionAnalysis`                          |
-| `events.ts`    | `WsEvent`, `SessionUpdateEvent`, `ActiveSessionsEvent`                   |
+| File           | Types                                                                                                                                                                                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session.ts`   | `JournalRecord`, `UserRecord`, `AssistantRecord`, `SystemRecord`, `AiTitleRecord`, `FileHistorySnapshot`, `QueueOperationRecord`, `TokenUsage`, `ContentBlock` (`TextBlock`, `ToolUseBlock`, `ToolResultBlock`, `ThinkingBlock`), `AssistantMessage` |
+| `analytics.ts` | `Session`, `SessionSummary`, `ParsedMessage`, `Subagent`, `SubagentMeta`, `CostRecord`, `TokenAnalytics`, `CostAnalytics`, `SessionTokenTimeline`, `TokenTimelinePoint`, `DailyTokenUsage`, `ModelBreakdown`, `ModelPricing`                         |
+| `project.ts`   | `Project`, `ProjectSummary`, `ProjectDetail`                                                                                                                                                                                                         |
+| `phase.ts`     | `PhaseType`, `AnalyzedPhase`, `SessionAnalysis`                                                                                                                                                                                                      |
+| `events.ts`    | `WsEvent`, `SessionUpdateEvent`, `SessionNewEvent`, `ActiveSessionsEvent`, `AnalyticsUpdateEvent`                                                                                                                                                    |
 
 ## Key Design Decisions
 

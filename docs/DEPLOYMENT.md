@@ -8,7 +8,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Server: http://localhost:3001 | Client: http://localhost:5173
+Server: http://localhost:3001 | Client: http://localhost:9999
 
 ---
 
@@ -30,7 +30,7 @@ This builds all three workspaces:
 node server/dist/index.js
 ```
 
-The server serves the API on the configured port. You need to serve `client/dist/` separately via a reverse proxy or static file server.
+In production mode (`NODE_ENV=production`), the server automatically serves `client/dist/` as static files with SPA fallback. A reverse proxy is optional but recommended for TLS termination and additional security.
 
 ---
 

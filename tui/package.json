@@ -1,0 +1,31 @@
+{
+  "name": "@agent-watcher/tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "agent-watch": "./dist/bin/agent-watch.js"
+  },
+  "scripts": {
+    "dev": "tsx bin/agent-watch.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@agent-watcher/shared": "*",
+    "ink": "^6.0.0",
+    "ink-select-input": "^6.0.0",
+    "ink-spinner": "^5.0.0",
+    "meow": "^13.0.0",
+    "react": "^19.0.0",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.12",
+    "@types/ws": "^8.5.14",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

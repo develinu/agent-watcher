@@ -14,8 +14,7 @@ Health check.
 
 ```json
 {
-  "status": "ok",
-  "claudeDir": "/home/user/.claude"
+  "status": "ok"
 }
 ```
 
@@ -34,10 +33,12 @@ List all projects.
   {
     "id": "-home-user-myproject",
     "path": "/home/user/myproject",
+    "name": "myproject",
     "sessionCount": 5,
     "totalInputTokens": 150000,
     "totalOutputTokens": 45000,
-    "lastActiveAt": "2026-03-31T10:00:00Z"
+    "lastActiveAt": "2026-03-31T10:00:00Z",
+    "activeSessionCount": 1
   }
 ]
 ```
@@ -52,18 +53,35 @@ Get project detail with all session summaries.
 {
   "id": "-home-user-myproject",
   "path": "/home/user/myproject",
+  "name": "myproject",
+  "sessionCount": 5,
+  "totalInputTokens": 150000,
+  "totalOutputTokens": 45000,
+  "lastActiveAt": "2026-03-31T10:00:00Z",
+  "activeSessionCount": 1,
   "sessions": [
     {
       "id": "abc123",
       "projectId": "-home-user-myproject",
+      "aiTitle": "WebSocket real-time monitoring",
+      "slug": null,
       "summary": "Add WebSocket real-time monitoring",
+      "entrypoint": "claude",
+      "cwd": "/home/user/myproject",
+      "version": "1.0.26",
+      "gitBranch": "main",
+      "startedAt": "2026-03-31T09:00:00Z",
+      "lastActiveAt": "2026-03-31T10:00:00Z",
       "messageCount": 24,
+      "model": "claude-sonnet-4-6",
+      "models": ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
       "totalInputTokens": 50000,
       "totalOutputTokens": 12000,
-      "model": "claude-sonnet-4-6",
-      "isActive": true,
-      "startedAt": "2026-03-31T09:00:00Z",
-      "lastActiveAt": "2026-03-31T10:00:00Z"
+      "totalCacheCreationTokens": 8000,
+      "totalCacheReadTokens": 30000,
+      "estimatedCost": 0.45,
+      "subagentCount": 2,
+      "isActive": true
     }
   ]
 }
@@ -85,8 +103,25 @@ Get full session with messages and subagents.
 {
   "id": "abc123",
   "projectId": "-home-user-myproject",
+  "aiTitle": "WebSocket real-time monitoring",
+  "slug": null,
   "summary": "Add WebSocket real-time monitoring",
+  "entrypoint": "claude",
+  "cwd": "/home/user/myproject",
+  "version": "1.0.26",
+  "gitBranch": "main",
+  "startedAt": "2026-03-31T09:00:00Z",
+  "lastActiveAt": "2026-03-31T10:00:00Z",
   "messageCount": 24,
+  "model": "claude-sonnet-4-6",
+  "models": ["claude-sonnet-4-6"],
+  "totalInputTokens": 50000,
+  "totalOutputTokens": 12000,
+  "totalCacheCreationTokens": 8000,
+  "totalCacheReadTokens": 30000,
+  "estimatedCost": 0.45,
+  "subagentCount": 2,
+  "isActive": true,
   "messages": [
     {
       "uuid": "msg-1",
@@ -103,7 +138,9 @@ Get full session with messages and subagents.
       "model": "claude-sonnet-4-6",
       "usage": {
         "input_tokens": 5000,
-        "output_tokens": 1200
+        "output_tokens": 1200,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 3000
       },
       "isSidechain": false
     }
@@ -115,7 +152,9 @@ Get full session with messages and subagents.
       "description": "Review code changes",
       "messageCount": 8,
       "totalInputTokens": 10000,
-      "totalOutputTokens": 3000
+      "totalOutputTokens": 3000,
+      "model": "claude-sonnet-4-6",
+      "lastActiveAt": "2026-03-31T09:30:00Z"
     }
   ]
 }
@@ -133,14 +172,20 @@ Get cumulative token usage timeline for charting.
   "points": [
     {
       "timestamp": "2026-03-31T09:00:05Z",
+      "messageIndex": 1,
       "cumulativeInput": 5000,
       "cumulativeOutput": 1200,
+      "cumulativeCacheCreation": 0,
+      "cumulativeCacheRead": 3000,
       "model": "claude-sonnet-4-6"
     },
     {
       "timestamp": "2026-03-31T09:01:10Z",
+      "messageIndex": 3,
       "cumulativeInput": 12000,
       "cumulativeOutput": 3500,
+      "cumulativeCacheCreation": 500,
+      "cumulativeCacheRead": 8000,
       "model": "claude-sonnet-4-6"
     }
   ]
@@ -204,15 +249,30 @@ Token usage analytics with optional date range filter.
   "daily": [
     {
       "date": "2026-03-31",
-      "totalInput": 250000,
-      "totalOutput": 75000,
-      "models": {
-        "claude-sonnet-4-6": { "input": 200000, "output": 60000 },
-        "claude-haiku-4-5-20251001": { "input": 50000, "output": 15000 }
-      }
+      "inputTokens": 250000,
+      "outputTokens": 75000,
+      "cacheCreationTokens": 15000,
+      "cacheReadTokens": 120000,
+      "sessionCount": 3
     }
   ],
-  "totalCost": 1.85
+  "byModel": [
+    {
+      "model": "claude-sonnet-4-6",
+      "inputTokens": 200000,
+      "outputTokens": 60000,
+      "estimatedCost": 1.5
+    },
+    {
+      "model": "claude-haiku-4-5-20251001",
+      "inputTokens": 50000,
+      "outputTokens": 15000,
+      "estimatedCost": 0.1
+    }
+  ],
+  "totalInput": 250000,
+  "totalOutput": 75000,
+  "totalEstimatedCost": 1.6
 }
 ```
 
@@ -244,7 +304,16 @@ Pushed when new messages are written to a session file.
   "projectId": "-home-user-myproject",
   "sessionId": "abc123",
   "newMessages": [
-    { "uuid": "msg-5", "type": "assistant", "timestamp": "...", "content": [...] }
+    {
+      "uuid": "msg-5",
+      "type": "assistant",
+      "timestamp": "2026-03-31T09:05:00Z",
+      "content": [{ "type": "text", "text": "Done." }],
+      "model": "claude-sonnet-4-6",
+      "usage": { "input_tokens": 3000, "output_tokens": 800 },
+      "agentId": null,
+      "isSidechain": false
+    }
   ],
   "tokenDelta": {
     "input": 3000,
@@ -253,21 +322,9 @@ Pushed when new messages are written to a session file.
 }
 ```
 
-### `session:new`
-
-Pushed when a new session file is detected.
-
-```json
-{
-  "type": "session:new",
-  "projectId": "-home-user-myproject",
-  "session": { "id": "def456", "summary": "...", "...": "..." }
-}
-```
-
 ### `session:active`
 
-Broadcasted every 10 seconds with the list of currently active sessions.
+Broadcasted on initial connection and every 10 seconds with the list of currently active sessions.
 
 ```json
 {
@@ -276,16 +333,7 @@ Broadcasted every 10 seconds with the list of currently active sessions.
 }
 ```
 
-### `analytics:update`
-
-Token usage delta for live analytics updating.
-
-```json
-{
-  "type": "analytics:update",
-  "tokenDelta": { "input": 3000, "output": 800 }
-}
-```
+> **Note:** The shared type definitions also include `session:new` and `analytics:update` event types for future extensibility. These are not currently emitted by the server.
 
 ---
 

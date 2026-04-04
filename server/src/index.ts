@@ -25,7 +25,7 @@ app.use(
   cors({
     origin: isProduction
       ? false
-      : ["http://localhost:5173", `http://localhost:${config.serverPort}`],
+      : ["http://localhost:9999", `http://localhost:${config.serverPort}`],
   })
 );
 app.use(helmet({ contentSecurityPolicy: isProduction }));
