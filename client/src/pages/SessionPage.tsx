@@ -9,6 +9,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
+  ReferenceLine,
 } from "recharts";
 import type {
   Session,
@@ -24,7 +25,6 @@ import {
   formatDuration,
   formatDateTime,
 } from "../lib/format.js";
-import { estimateCost } from "../lib/cost-calculator.js";
 import { StatusIndicator } from "../components/common/StatusIndicator.js";
 import { Badge } from "../components/common/Badge.js";
 import { LoadingSpinner } from "../components/common/LoadingSpinner.js";
@@ -81,16 +81,11 @@ export function SessionPage() {
   if (!session) return <div className="p-6 text-gray-400">Session not found</div>;
 
   const title = session.aiTitle ?? session.slug ?? session.id.slice(0, 8);
-  const modelShort = session.model?.replace("claude-", "") ?? "unknown";
+  const modelLabels = (
+    session.models?.length ? session.models : session.model ? [session.model] : []
+  ).map((m) => m.replace("claude-", "").split("-").slice(0, 2).join("-"));
   const totalTokens = session.totalInputTokens + session.totalOutputTokens;
-  const cost = session.model
-    ? estimateCost(session.model, {
-        input_tokens: session.totalInputTokens,
-        output_tokens: session.totalOutputTokens,
-        cache_creation_input_tokens: session.totalCacheCreationTokens,
-        cache_read_input_tokens: session.totalCacheReadTokens,
-      })
-    : 0;
+  const cost = session.estimatedCost;
 
   return (
     <div className="flex h-full flex-col">
@@ -109,7 +104,15 @@ export function SessionPage() {
         <div className="flex items-center gap-3">
           <StatusIndicator active={session.isActive} size="md" />
           <h1 className="text-xl font-bold">{title}</h1>
-          <Badge variant="blue">{modelShort}</Badge>
+          {modelLabels.length > 0 ? (
+            modelLabels.map((label) => (
+              <Badge key={label} variant="blue">
+                {label}
+              </Badge>
+            ))
+          ) : (
+            <Badge variant="blue">unknown</Badge>
+          )}
           {session.entrypoint && <Badge>{session.entrypoint}</Badge>}
         </div>
         <div className="mt-2 flex flex-wrap gap-4 text-sm text-gray-400">
@@ -350,11 +353,38 @@ function TokenChart({ timeline }: { timeline: SessionTokenTimeline }) {
     output: p.cumulativeOutput,
     cacheWrite: p.cumulativeCacheCreation,
     cacheRead: p.cumulativeCacheRead,
+    model: p.model,
   }));
+
+  // Detect model switch points
+  const modelSwitches: { index: number; from: string; to: string }[] = [];
+  for (let i = 1; i < timeline.points.length; i++) {
+    const prev = timeline.points[i - 1].model;
+    const curr = timeline.points[i].model;
+    if (prev !== curr) {
+      modelSwitches.push({
+        index: timeline.points[i].messageIndex,
+        from: prev.replace("claude-", "").split("-").slice(0, 2).join("-"),
+        to: curr.replace("claude-", "").split("-").slice(0, 2).join("-"),
+      });
+    }
+  }
 
   return (
     <div className="p-6">
       <h3 className="mb-4 text-lg font-semibold">Cumulative Token Usage</h3>
+      {modelSwitches.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-2 text-xs text-gray-400">
+          {modelSwitches.map((sw) => (
+            <span
+              key={sw.index}
+              className="rounded border border-red-800/50 bg-red-900/20 px-2 py-0.5 text-red-400"
+            >
+              #{sw.index}: {sw.from} → {sw.to}
+            </span>
+          ))}
+        </div>
+      )}
       <ResponsiveContainer width="100%" height={400}>
         <AreaChart data={data}>
           <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -370,10 +400,29 @@ function TokenChart({ timeline }: { timeline: SessionTokenTimeline }) {
               border: "1px solid #374151",
               borderRadius: "8px",
             }}
-            labelFormatter={(label: number) => `Message #${label}`}
+            labelFormatter={(label: number) => {
+              const point = data.find((d) => d.index === label);
+              const modelLabel =
+                point?.model?.replace("claude-", "").split("-").slice(0, 2).join("-") ?? "";
+              return `Message #${label} (${modelLabel})`;
+            }}
             formatter={(value: number) => [formatTokenCount(value), ""]}
           />
           <Legend />
+          {modelSwitches.map((sw) => (
+            <ReferenceLine
+              key={sw.index}
+              x={sw.index}
+              stroke="#ef4444"
+              strokeDasharray="4 4"
+              label={{
+                value: sw.to,
+                position: "top",
+                fill: "#ef4444",
+                fontSize: 10,
+              }}
+            />
+          ))}
           <Area
             type="monotone"
             dataKey="input"

@@ -116,8 +116,9 @@ export function ProjectPage() {
 
 function SessionRow({ session, projectId }: { session: SessionSummary; projectId: string }) {
   const title = session.aiTitle ?? session.slug ?? session.id.slice(0, 8);
-  const modelShort =
-    session.model?.replace("claude-", "").split("-").slice(0, 2).join("-") ?? "unknown";
+  const modelLabels = (
+    session.models?.length ? session.models : session.model ? [session.model] : []
+  ).map((m) => m.replace("claude-", "").split("-").slice(0, 2).join("-"));
 
   return (
     <Link
@@ -128,7 +129,15 @@ function SessionRow({ session, projectId }: { session: SessionSummary; projectId
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate font-medium">{title}</span>
-          <Badge variant="blue">{modelShort}</Badge>
+          {modelLabels.length > 0 ? (
+            modelLabels.map((label) => (
+              <Badge key={label} variant="blue">
+                {label}
+              </Badge>
+            ))
+          ) : (
+            <Badge variant="blue">unknown</Badge>
+          )}
           {session.entrypoint && <Badge>{session.entrypoint}</Badge>}
           {session.subagentCount > 0 && (
             <Badge variant="purple">{session.subagentCount} agents</Badge>

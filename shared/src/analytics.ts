@@ -40,10 +40,12 @@ export interface SessionSummary {
   readonly lastActiveAt: string;
   readonly messageCount: number;
   readonly model: string | null;
+  readonly models: readonly string[];
   readonly totalInputTokens: number;
   readonly totalOutputTokens: number;
   readonly totalCacheCreationTokens: number;
   readonly totalCacheReadTokens: number;
+  readonly estimatedCost: number;
   readonly subagentCount: number;
   readonly isActive: boolean;
 }

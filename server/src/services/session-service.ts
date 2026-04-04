@@ -5,7 +5,7 @@ import type { JournalRecord, UserRecord } from "@agent-watcher/shared";
 import { parseJsonlFile } from "./jsonl-parser.js";
 import { scanSubagents, readSubagentMeta } from "./file-scanner.js";
 import { generateSessionSummaryLlm, generateSessionSummaryLlmBackground } from "./llm-analyzer.js";
-import { config } from "../config.js";
+import { config, estimateCost } from "../config.js";
 
 // ─── Concurrency helper ──────────────────────────────────
 
@@ -150,22 +150,31 @@ function aggregateTokens(records: readonly JournalRecord[]): {
   output: number;
   cacheCreation: number;
   cacheRead: number;
+  estimatedCost: number;
 } {
   let input = 0;
   let output = 0;
   let cacheCreation = 0;
   let cacheRead = 0;
+  let totalCost = 0;
 
   for (const record of records) {
     if (record.type === "assistant" && record.message.usage) {
-      input += record.message.usage.input_tokens;
-      output += record.message.usage.output_tokens;
-      cacheCreation += record.message.usage.cache_creation_input_tokens ?? 0;
-      cacheRead += record.message.usage.cache_read_input_tokens ?? 0;
+      const usage = record.message.usage;
+      input += usage.input_tokens;
+      output += usage.output_tokens;
+      cacheCreation += usage.cache_creation_input_tokens ?? 0;
+      cacheRead += usage.cache_read_input_tokens ?? 0;
+      totalCost += estimateCost(record.message.model ?? "unknown", {
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens ?? 0,
+        cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
+      });
     }
   }
 
-  return { input, output, cacheCreation, cacheRead };
+  return { input, output, cacheCreation, cacheRead, estimatedCost: totalCost };
 }
 
 function extractMetadata(records: readonly JournalRecord[]): {
@@ -176,6 +185,7 @@ function extractMetadata(records: readonly JournalRecord[]): {
   version: string | null;
   gitBranch: string | null;
   model: string | null;
+  models: readonly string[];
   startedAt: string;
   lastActiveAt: string;
 } {
@@ -186,6 +196,7 @@ function extractMetadata(records: readonly JournalRecord[]): {
   let version: string | null = null;
   let gitBranch: string | null = null;
   let model: string | null = null;
+  const modelsSet = new Set<string>();
   let startedAt = "";
   let lastActiveAt = "";
 
@@ -202,11 +213,23 @@ function extractMetadata(records: readonly JournalRecord[]): {
       lastActiveAt = record.timestamp;
     } else if (record.type === "assistant") {
       if (!model) model = record.message.model;
+      if (record.message.model) modelsSet.add(record.message.model);
       lastActiveAt = record.timestamp;
     }
   }
 
-  return { aiTitle, slug, entrypoint, cwd, version, gitBranch, model, startedAt, lastActiveAt };
+  return {
+    aiTitle,
+    slug,
+    entrypoint,
+    cwd,
+    version,
+    gitBranch,
+    model,
+    models: Array.from(modelsSet),
+    startedAt,
+    lastActiveAt,
+  };
 }
 
 export async function getSession(
@@ -235,6 +258,7 @@ export async function getSession(
     totalOutputTokens: tokens.output,
     totalCacheCreationTokens: tokens.cacheCreation,
     totalCacheReadTokens: tokens.cacheRead,
+    estimatedCost: tokens.estimatedCost,
     subagentCount: subagents.length,
     isActive,
     messages,
@@ -292,6 +316,7 @@ export async function getSessionSummary(
     totalOutputTokens: tokens.output,
     totalCacheCreationTokens: tokens.cacheCreation,
     totalCacheReadTokens: tokens.cacheRead,
+    estimatedCost: tokens.estimatedCost,
     subagentCount,
     isActive: isSessionActive(meta.lastActiveAt),
   };

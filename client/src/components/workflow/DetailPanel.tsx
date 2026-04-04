@@ -213,8 +213,9 @@ function PhaseDetail({ phase, subagents }: { phase: Phase; subagents: readonly S
 // ─── Session detail (project view) ──────────────────────────
 
 function SessionDetail({ session, projectId }: { session: SessionSummary; projectId: string }) {
-  const modelShort =
-    session.model?.replace("claude-", "").split("-").slice(0, 2).join("-") ?? "unknown";
+  const modelLabels = (
+    session.models?.length ? session.models : session.model ? [session.model] : []
+  ).map((m) => m.replace("claude-", "").split("-").slice(0, 2).join("-"));
   const totalTokens = session.totalInputTokens + session.totalOutputTokens;
 
   return (
@@ -222,7 +223,15 @@ function SessionDetail({ session, projectId }: { session: SessionSummary; projec
       <div>
         <div className="mb-2 flex flex-wrap items-center gap-1">
           <StatusIndicator active={session.isActive} size="md" />
-          <Badge variant="blue">{modelShort}</Badge>
+          {modelLabels.length > 0 ? (
+            modelLabels.map((label) => (
+              <Badge key={label} variant="blue">
+                {label}
+              </Badge>
+            ))
+          ) : (
+            <Badge variant="blue">unknown</Badge>
+          )}
           {session.entrypoint && <Badge>{session.entrypoint}</Badge>}
           {session.subagentCount > 0 && (
             <Badge variant="purple">{session.subagentCount} agents</Badge>

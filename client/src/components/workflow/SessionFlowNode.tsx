@@ -8,8 +8,9 @@ export function SessionFlowNode({ data, selected }: NodeProps) {
   const d = data as unknown as SessionFlowNodeData;
   const { session } = d;
 
-  const modelShort =
-    session.model?.replace("claude-", "").split("-").slice(0, 2).join("-") ?? "unknown";
+  const modelLabels = (
+    session.models?.length ? session.models : session.model ? [session.model] : []
+  ).map((m) => m.replace("claude-", "").split("-").slice(0, 2).join("-"));
   const totalTokens = session.totalInputTokens + session.totalOutputTokens;
 
   const borderClass = selected
@@ -35,7 +36,15 @@ export function SessionFlowNode({ data, selected }: NodeProps) {
             Latest
           </span>
         )}
-        <Badge variant="blue">{modelShort}</Badge>
+        {modelLabels.length > 0 ? (
+          modelLabels.map((label) => (
+            <Badge key={label} variant="blue">
+              {label}
+            </Badge>
+          ))
+        ) : (
+          <Badge variant="blue">unknown</Badge>
+        )}
         {session.entrypoint && <Badge>{session.entrypoint}</Badge>}
         {session.subagentCount > 0 && (
           <Badge variant="purple">{session.subagentCount} agents</Badge>
