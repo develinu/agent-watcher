@@ -368,8 +368,102 @@ function cleanJsonResponse(text: string): string {
     .trim();
 }
 
+/**
+ * Attempt to repair truncated/malformed JSON from LLM output.
+ * Handles: trailing commas, unterminated strings, unclosed brackets/braces.
+ */
+function repairJson(text: string): string {
+  let s = text;
+
+  // Remove trailing commas before ] or }
+  s = s.replace(/,\s*([}\]])/g, "$1");
+
+  // Track open brackets to detect truncation
+  let inString = false;
+  let escape = false;
+  const stack: string[] = [];
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "[" || ch === "{") stack.push(ch);
+    else if (ch === "]" || ch === "}") stack.pop();
+  }
+
+  // Close unterminated string
+  if (inString) {
+    // Trim back to the last complete key-value pair
+    const lastQuote = s.lastIndexOf('"');
+    if (lastQuote > 0) {
+      // Find the last complete entry by looking for the last '}' or ']' before this quote
+      const lastCloseBrace = s.lastIndexOf("}", lastQuote);
+      const lastCloseBracket = s.lastIndexOf("]", lastQuote);
+      const cutPoint = Math.max(lastCloseBrace, lastCloseBracket);
+      if (cutPoint > 0) {
+        s = s.slice(0, cutPoint + 1);
+        // Recalculate stack
+        inString = false;
+        escape = false;
+        stack.length = 0;
+        for (let i = 0; i < s.length; i++) {
+          const ch = s[i];
+          if (escape) {
+            escape = false;
+            continue;
+          }
+          if (ch === "\\") {
+            escape = true;
+            continue;
+          }
+          if (ch === '"') {
+            inString = !inString;
+            continue;
+          }
+          if (inString) continue;
+          if (ch === "[" || ch === "{") stack.push(ch);
+          else if (ch === "]" || ch === "}") stack.pop();
+        }
+      } else {
+        s += '"';
+      }
+    }
+  }
+
+  // Remove dangling comma after trim
+  s = s.replace(/,\s*$/, "");
+
+  // Close remaining open brackets/braces
+  while (stack.length > 0) {
+    const open = stack.pop();
+    s += open === "[" ? "]" : "}";
+  }
+
+  return s;
+}
+
+function safeJsonParse(text: string): unknown {
+  const cleaned = cleanJsonResponse(text);
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return JSON.parse(repairJson(cleaned));
+  }
+}
+
 function parseFullResponse(text: string): readonly AnalyzedPhase[] {
-  const raw: unknown = JSON.parse(cleanJsonResponse(text));
+  const raw: unknown = safeJsonParse(text);
   if (!Array.isArray(raw)) {
     throw new Error("LLM response is not an array");
   }
@@ -404,7 +498,7 @@ interface IncrementalResponse {
 }
 
 function parseIncrementalResponse(text: string): IncrementalResponse {
-  const raw = JSON.parse(cleanJsonResponse(text)) as {
+  const raw = safeJsonParse(text) as {
     lastPhaseUpdate: { mergedTurnIndices: number[]; summary: string };
     newPhases: Array<{
       id: string;
