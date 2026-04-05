@@ -50,8 +50,11 @@ export function useWs(host: string, port: number): UseWsResult {
         scheduleReconnect();
       });
 
-      ws.on("error", () => {
+      ws.on("error", (err: Error) => {
+        if (!mountedRef.current) return;
         // close event will fire after error, triggering reconnect
+        // Suppress ECONNREFUSED noise — reconnect handles it
+        if ("code" in err && (err as NodeJS.ErrnoException).code === "ECONNREFUSED") return;
       });
     }
 

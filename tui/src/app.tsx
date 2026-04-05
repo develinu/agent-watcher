@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { Box, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import type { SessionSummary, WsEvent } from "@agent-watcher/shared";
 import { useProject } from "./hooks/use-project.js";
 import { useSession, useAnalysis } from "./hooks/use-api.js";
@@ -14,13 +14,26 @@ interface AppProps {
   readonly host: string;
   readonly port: number;
   readonly projectIdOverride?: string;
+  readonly debug?: boolean;
 }
 
 type FocusPanel = "sessions" | "workflow";
 
-export function App({ host, port, projectIdOverride }: AppProps): React.ReactElement {
+function log(debug: boolean, ...args: unknown[]) {
+  if (debug) {
+    process.stderr.write(`[tui] ${args.map(String).join(" ")}\n`);
+  }
+}
+
+export function App({
+  host,
+  port,
+  projectIdOverride,
+  debug = false,
+}: AppProps): React.ReactElement {
   const { exit } = useApp();
   const { stdout } = useStdout();
+  const { isRawModeSupported } = useStdin();
   const termWidth = stdout?.columns ?? 120;
 
   // Project detection
@@ -30,6 +43,8 @@ export function App({ host, port, projectIdOverride }: AppProps): React.ReactEle
     isLoading: projectLoading,
     error: projectError,
   } = useProject(host, port, projectIdOverride);
+
+  log(debug, "render: loading=", projectLoading, "error=", projectError, "projectId=", projectId);
 
   // Session list (from project data)
   const sessions: readonly SessionSummary[] = useMemo(() => {
@@ -110,61 +125,55 @@ export function App({ host, port, projectIdOverride }: AppProps): React.ReactEle
     }
   }, [sessions, sessionIndex]);
 
-  useInput((input, key) => {
-    // Quit
-    if (input === "q") {
-      exit();
-      return;
-    }
-
-    // Tab: switch focus panel
-    if (key.tab) {
-      setFocusPanel((prev) => (prev === "sessions" ? "workflow" : "sessions"));
-      return;
-    }
-
-    // Escape: back to session list
-    if (key.escape) {
-      if (focusPanel === "workflow") {
-        setFocusPanel("sessions");
-        setSelectedSessionId(null);
+  // useInput requires raw mode — only activate when supported
+  useInput(
+    (input, key) => {
+      if (input === "q") {
+        exit();
+        return;
       }
-      return;
-    }
-
-    // Up/Down navigation
-    if (key.upArrow) {
-      if (focusPanel === "sessions") {
-        setSessionIndex((prev) => Math.max(0, prev - 1));
-      } else {
-        setPhaseIndex((prev) => Math.max(0, prev - 1));
+      if (key.tab) {
+        setFocusPanel((prev) => (prev === "sessions" ? "workflow" : "sessions"));
+        return;
       }
-      return;
-    }
-
-    if (key.downArrow) {
-      if (focusPanel === "sessions") {
-        setSessionIndex((prev) => Math.min(sessions.length - 1, prev + 1));
-      } else {
-        setPhaseIndex((prev) => Math.min(phases.length - 1, prev + 1));
+      if (key.escape) {
+        if (focusPanel === "workflow") {
+          setFocusPanel("sessions");
+          setSelectedSessionId(null);
+        }
+        return;
       }
-      return;
-    }
-
-    // Enter: select
-    if (key.return) {
-      if (focusPanel === "sessions") {
-        handleSelectSession();
+      if (key.upArrow) {
+        if (focusPanel === "sessions") {
+          setSessionIndex((prev) => Math.max(0, prev - 1));
+        } else {
+          setPhaseIndex((prev) => Math.max(0, prev - 1));
+        }
+        return;
       }
-      return;
-    }
-  });
+      if (key.downArrow) {
+        if (focusPanel === "sessions") {
+          setSessionIndex((prev) => Math.min(sessions.length - 1, prev + 1));
+        } else {
+          setPhaseIndex((prev) => Math.min(phases.length - 1, prev + 1));
+        }
+        return;
+      }
+      if (key.return) {
+        if (focusPanel === "sessions") {
+          handleSelectSession();
+        }
+        return;
+      }
+    },
+    { isActive: isRawModeSupported === true }
+  );
 
   // ─── Loading state ──────────────────────────────────────────
   if (projectLoading) {
     return (
-      <Box flexDirection="column" paddingX={1}>
-        <Text color="cyan">⠋ Connecting to agent-watcher server...</Text>
+      <Box paddingX={1}>
+        <Text color="cyan">Loading sessions...</Text>
       </Box>
     );
   }
@@ -183,7 +192,7 @@ export function App({ host, port, projectIdOverride }: AppProps): React.ReactEle
   const selectedPhase = phases[phaseIndex] ?? null;
 
   return (
-    <Box flexDirection="column" width={termWidth} height={stdout?.rows ?? 24}>
+    <Box flexDirection="column" width={termWidth}>
       {/* Header */}
       <Box paddingX={1}>
         <Text bold color="cyan">
@@ -262,6 +271,13 @@ export function App({ host, port, projectIdOverride }: AppProps): React.ReactEle
         activeCount={activeSessions.size}
         focusPanel={focusPanel}
       />
+
+      {/* Non-TTY hint */}
+      {!isRawModeSupported && (
+        <Box paddingX={1}>
+          <Text color="yellow">Keyboard input unavailable (not a TTY)</Text>
+        </Box>
+      )}
     </Box>
   );
 }

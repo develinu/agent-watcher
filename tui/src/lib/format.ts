@@ -4,7 +4,8 @@ export function formatTokenCount(count: number): string {
   return count.toString();
 }
 
-export function formatCost(usd: number): string {
+export function formatCost(usd: number | undefined): string {
+  if (usd == null || isNaN(usd)) return "$0";
   if (usd >= 1) return `$${usd.toFixed(2)}`;
   if (usd >= 0.01) return `$${usd.toFixed(3)}`;
   return `$${usd.toFixed(4)}`;
