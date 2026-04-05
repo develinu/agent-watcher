@@ -47,7 +47,7 @@ try {
   process.exit(1);
 }
 
-render(
+const instance = render(
   React.createElement(App, {
     host: cli.flags.host,
     port: cli.flags.port,
@@ -55,3 +55,6 @@ render(
     debug: cli.flags.debug,
   })
 );
+
+await instance.waitUntilExit();
+process.exit(0);
