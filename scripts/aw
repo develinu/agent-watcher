@@ -30,7 +30,7 @@ cmd_start() {
   _cleanup_stale
   if _is_running; then
     echo "agent-watcher is already running (PID: $(cat "$PID_FILE"))"
-    return 1
+    return 0
   fi
 
   nohup npx --prefix "$AGENT_WATCHER_DIR" tsx watch \
@@ -94,9 +94,16 @@ cmd_logs() {
 
 cmd_tui() {
   if ! curl -sf "http://localhost:$SERVER_PORT/api/status" > /dev/null 2>&1; then
-    echo "Error: agent-watcher server is not running at localhost:$SERVER_PORT" >&2
-    echo "Run: aw start" >&2
-    exit 1
+    echo "Server not running. Starting..." >&2
+    cmd_start
+    local i=0
+    while ! curl -sf "http://localhost:$SERVER_PORT/api/status" > /dev/null 2>&1 && [ $i -lt 20 ]; do
+      sleep 0.5; i=$((i+1))
+    done
+    if ! curl -sf "http://localhost:$SERVER_PORT/api/status" > /dev/null 2>&1; then
+      echo "Error: server failed to start" >&2
+      exit 1
+    fi
   fi
   npx --prefix "$AGENT_WATCHER_DIR" tsx \
     "$AGENT_WATCHER_DIR/tui/bin/agent-watch.ts" "$@"
