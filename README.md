@@ -4,6 +4,17 @@ Real-time monitoring and visualization dashboard for [Claude Code](https://claud
 
 Agent Watcher reads Claude Code's local session logs, analyzes workflow phases using AI, and presents everything in an interactive web UI with live updates.
 
+> **Your data never leaves your machine.**
+> Agent Watcher reads `~/.claude` directly on your local filesystem — no cloud sync, no telemetry, no external servers involved. Your session history, prompts, and code context stay entirely private.
+
+## Why Agent Watcher?
+
+- **100% local & private** — Reads session files directly from disk. Nothing is uploaded or transmitted anywhere.
+- **No API key required** — Works out of the box with built-in regex-based analysis. Add an LLM key only if you want richer AI summaries and phase classification.
+- **Works offline** — Full monitoring, workflow visualization, and token tracking work without any internet connection.
+- **Dual interface** — Browser-based dashboard for rich visuals, or a lightweight terminal UI (`aw tui`) for keyboard-driven workflows.
+- **Open source & self-hosted** — MIT licensed. You own and control the entire stack.
+
 ## Features
 
 - **Real-time monitoring** — Watches `~/.claude` for session activity via WebSocket
@@ -163,6 +174,7 @@ agent-watcher/
 │       ├── routes/       # REST API endpoints
 │       ├── services/     # Business logic
 │       └── watchers/     # File watcher & WebSocket
+├── tui/             # Terminal UI (Ink)
 ├── shared/          # Shared TypeScript types
 └── package.json     # Workspace root
 ```
