@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - 2026-04-07
 
+### Added
+
+- **TUI package** — Terminal UI for monitoring sessions without a browser (`npm run tui`)
+- **`aw` control scripts** — Global `aw` command via `scripts/install.sh` for server and TUI management from any directory
+
 ### Changed
 
 - **Session summary caching** — Two-tier cache (memory + disk) validated by file stat; eliminates redundant JSONL parsing on repeated requests and survives server restarts
@@ -14,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Non-blocking LLM summaries** — Summary requests return regex fallback immediately; LLM results are generated in the background and served on the next request
 - **Cache invalidation** — WebSocket file-change events automatically evict stale session summary caches
 - **Language-aware LLM prompts** — Auto-detect user language (Korean/Japanese/Chinese) from messages and inject explicit language constraint into all LLM prompts (workflow phases, session summaries)
+
+### Fixed
+
+- **`aw tui`** — Automatically starts the server if not running (no manual `aw start` required)
+- **`aw start`** — Exits with code 0 when server is already running (idempotent)
 
 ## [0.1.0] - 2026-03-31
 

@@ -57,6 +57,8 @@ Agent Watcher includes a terminal UI for monitoring sessions without a browser.
 npm run tui
 ```
 
+> The server must be running (`npm run dev` or `aw start`) before the TUI can connect.
+
 The TUI connects to the running server and shows sessions grouped by project, with real-time workflow visualization in the terminal.
 
 ## aw Scripts
