@@ -25,6 +25,16 @@ Agent Watcher reads Claude Code's local session logs, analyzes workflow phases u
 - **Project organization** — Sessions grouped by project with aggregated views
 - **Multi-language support** — Analysis adapts to the language of user messages
 
+## Demo
+
+### Web UI (Dashboard)
+
+![Web UI Demo](docs/images/gui-demo.gif)
+
+### Terminal UI (TUI)
+
+![Terminal UI Demo](docs/images/tui-demo.gif)
+
 ## Tech Stack
 
 | Layer    | Technology                                           |
