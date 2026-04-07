@@ -11,7 +11,7 @@ mkdir -p "$INSTALL_DIR"
 # __PROJECT_DIR__ 플레이스홀더를 실제 경로로 치환하여 설치
 tmp="$(mktemp)"
 sed "s|__PROJECT_DIR__|$PROJECT_DIR|g" "$SCRIPT_DIR/aw" > "$tmp"
-chmod +x "$tmp"
+chmod 755 "$tmp"
 mv "$tmp" "$TARGET"
 
 echo "Installed: $TARGET"
