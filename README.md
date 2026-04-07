@@ -48,6 +48,7 @@ Agent Watcher reads Claude Code's local session logs, analyzes workflow phases u
 - **Node.js** >= 18
 - **npm** >= 9
 - [Claude Code](https://claude.ai/claude-code) installed (generates session logs at `~/.claude`)
+- **At least one Claude Code session** — Agent Watcher monitors and displays existing Claude Code sessions. You need to run Claude Code and generate session logs for Agent Watcher to track and analyze.
 
 ## Quick Start
 
@@ -68,6 +69,8 @@ npm run dev
 ```
 
 Open http://localhost:9999 in your browser.
+
+> **Note:** Agent Watcher will be empty until you create Claude Code sessions. Use Claude Code (web, CLI, or IDE extensions) to generate session logs at `~/.claude`. Agent Watcher will automatically detect and monitor new sessions in real-time.
 
 ## TUI (CLI Monitor)
 
