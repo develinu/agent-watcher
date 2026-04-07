@@ -49,6 +49,37 @@ npm run dev
 
 Open http://localhost:9999 in your browser.
 
+## TUI (CLI Monitor)
+
+Agent Watcher includes a terminal UI for monitoring sessions without a browser.
+
+```bash
+npm run tui
+```
+
+The TUI connects to the running server and shows sessions grouped by project, with real-time workflow visualization in the terminal.
+
+## aw Scripts
+
+Install a global `aw` command for managing the server and TUI from any directory:
+
+```bash
+bash scripts/install.sh
+```
+
+Then use from any project directory:
+
+```bash
+aw start    # Start server in background
+aw stop     # Stop server
+aw restart  # Restart server
+aw status   # Show server status
+aw logs     # Tail server log (Ctrl+C to exit)
+aw tui      # Launch TUI monitor (auto-starts server if needed)
+```
+
+> `aw tui` automatically starts the server if it is not already running.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and configure:
