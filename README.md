@@ -10,8 +10,7 @@ Agent Watcher reads Claude Code's local session logs, analyzes workflow phases u
 ## Why Agent Watcher?
 
 - **100% local & private** — Reads session files directly from disk. Nothing is uploaded or transmitted anywhere.
-- **LLM API key required** — Provides AI-powered workflow analysis, phase classification, and intelligent summaries. Requires an API key from Anthropic, OpenAI, or Google Gemini for full capabilities.
-- **Works offline** — Full monitoring, workflow visualization, and token tracking work without any internet connection.
+- **Works with or without LLM** — Basic monitoring and session tracking work out of the box. Add an LLM API key (Anthropic, OpenAI, or Gemini) for dramatically improved workflow analysis and phase classification.
 - **Dual interface** — Browser-based dashboard for rich visuals, or a lightweight terminal UI (`aw tui`) for keyboard-driven workflows.
 - **Open source & self-hosted** — MIT licensed. You own and control the entire stack.
 
@@ -62,7 +61,7 @@ npm install
 
 # Configure
 cp .env.example .env
-# Edit .env — add your LLM API key (required for full features)
+# Edit .env — add an LLM API key for enhanced analysis (optional but recommended)
 
 # Run
 npm run dev
@@ -135,7 +134,7 @@ OPENAI_API_KEY=
 GEMINI_API_KEY=
 ```
 
-> **Important:** An API key is required for full workflow analysis and phase classification. Without it, Agent Watcher falls back to basic regex-based detection with limited accuracy.
+> **Recommended:** While Agent Watcher works without an LLM API key, adding one significantly improves workflow analysis accuracy and phase classification. Regex-based fallback provides basic detection but lacks the depth of AI-powered insights.
 
 ## Production
 
