@@ -7,7 +7,10 @@ AGENT_WATCHER_DIR="__PROJECT_DIR__"
 PID_DIR="$HOME/.agent-watcher"
 PID_FILE="$PID_DIR/server.pid"
 LOG_FILE="$PID_DIR/server.log"
+VITE_PID_FILE="$PID_DIR/vite.pid"
+VITE_LOG_FILE="$PID_DIR/vite.log"
 SERVER_PORT="${SERVER_PORT:-3001}"
+WEB_PORT="${WEB_PORT:-9999}"
 
 if [ "$AGENT_WATCHER_DIR" = "__PROJECT""_DIR__" ]; then
   echo "Error: script has not been installed. Run scripts/install.sh first." >&2
@@ -26,42 +29,82 @@ _cleanup_stale() {
   fi
 }
 
+_is_vite_running() {
+  [ -f "$VITE_PID_FILE" ] && kill -0 "$(cat "$VITE_PID_FILE")" 2>/dev/null
+}
+
+_cleanup_stale_vite() {
+  if [ -f "$VITE_PID_FILE" ] && ! kill -0 "$(cat "$VITE_PID_FILE")" 2>/dev/null; then
+    rm -f "$VITE_PID_FILE"
+  fi
+}
+
 cmd_start() {
   _cleanup_stale
   if _is_running; then
     echo "agent-watcher is already running (PID: $(cat "$PID_FILE"))"
-    return 0
+  else
+    nohup npx --prefix "$AGENT_WATCHER_DIR" tsx watch \
+      "$AGENT_WATCHER_DIR/server/src/index.ts" \
+      >> "$LOG_FILE" 2>&1 < /dev/null &
+
+    local pid=$!
+    echo $pid > "$PID_FILE"
+    echo "Server started  (PID: $pid, port: $SERVER_PORT)"
   fi
 
-  nohup npx --prefix "$AGENT_WATCHER_DIR" tsx watch \
-    "$AGENT_WATCHER_DIR/server/src/index.ts" \
-    >> "$LOG_FILE" 2>&1 < /dev/null &
+  _cleanup_stale_vite
+  if _is_vite_running; then
+    echo "Web UI already running (PID: $(cat "$VITE_PID_FILE"))"
+  else
+    nohup sh -c "cd '$AGENT_WATCHER_DIR' && npm run dev -w client" \
+      >> "$VITE_LOG_FILE" 2>&1 < /dev/null &
 
-  local pid=$!
-  echo $pid > "$PID_FILE"
-  echo "agent-watcher started (PID: $pid, port: $SERVER_PORT)"
-  echo "Logs: $LOG_FILE"
+    local vite_pid=$!
+    echo $vite_pid > "$VITE_PID_FILE"
+    echo "Web UI started  (PID: $vite_pid, port: $WEB_PORT)"
+  fi
+
+  echo "Logs: $LOG_FILE (server), $VITE_LOG_FILE (web)"
 }
 
 cmd_stop() {
   _cleanup_stale
-  if ! _is_running; then
-    echo "agent-watcher is not running"
-    return 0
+  if _is_running; then
+    local pid
+    pid=$(cat "$PID_FILE")
+    kill "$pid"
+    local i=0
+    while kill -0 "$pid" 2>/dev/null && [ $i -lt 10 ]; do
+      sleep 0.3; i=$((i+1))
+    done
+    rm -f "$PID_FILE"
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "Warning: server process $pid did not exit after 3s." >&2
+    else
+      echo "Server stopped  (PID: $pid)"
+    fi
+  else
+    echo "Server is not running"
   fi
 
-  local pid
-  pid=$(cat "$PID_FILE")
-  kill "$pid"
-  local i=0
-  while kill -0 "$pid" 2>/dev/null && [ $i -lt 10 ]; do
-    sleep 0.3; i=$((i+1))
-  done
-  rm -f "$PID_FILE"
-  if kill -0 "$pid" 2>/dev/null; then
-    echo "Warning: process $pid did not exit after 3s; it may still be running." >&2
+  _cleanup_stale_vite
+  if _is_vite_running; then
+    local vite_pid
+    vite_pid=$(cat "$VITE_PID_FILE")
+    kill "$vite_pid"
+    local i=0
+    while kill -0 "$vite_pid" 2>/dev/null && [ $i -lt 10 ]; do
+      sleep 0.3; i=$((i+1))
+    done
+    rm -f "$VITE_PID_FILE"
+    if kill -0 "$vite_pid" 2>/dev/null; then
+      echo "Warning: web UI process $vite_pid did not exit after 3s." >&2
+    else
+      echo "Web UI stopped  (PID: $vite_pid)"
+    fi
   else
-    echo "agent-watcher stopped (PID: $pid)"
+    echo "Web UI is not running"
   fi
 }
 
@@ -73,23 +116,47 @@ cmd_restart() {
 cmd_status() {
   _cleanup_stale
   if _is_running; then
-    echo "Running (PID: $(cat "$PID_FILE"), port: $SERVER_PORT)"
+    echo "Server:  Running (PID: $(cat "$PID_FILE"), port: $SERVER_PORT)"
     if curl -sf "http://localhost:$SERVER_PORT/api/status" > /dev/null 2>&1; then
-      echo "HTTP: OK"
+      echo "         HTTP: OK"
     else
-      echo "HTTP: not responding yet (server may be starting up)"
+      echo "         HTTP: not responding yet (starting up)"
     fi
   else
-    echo "Not running"
+    echo "Server:  Not running"
+  fi
+
+  _cleanup_stale_vite
+  if _is_vite_running; then
+    echo "Web UI:  Running (PID: $(cat "$VITE_PID_FILE"), port: $WEB_PORT)"
+    if curl -sf "http://localhost:$WEB_PORT" > /dev/null 2>&1; then
+      echo "         HTTP: OK → http://localhost:$WEB_PORT"
+    else
+      echo "         HTTP: not responding yet (starting up)"
+    fi
+  else
+    echo "Web UI:  Not running"
   fi
 }
 
 cmd_logs() {
-  if [ ! -f "$LOG_FILE" ]; then
-    echo "No log file found at $LOG_FILE" >&2
+  case "${1:-server}" in
+    server) _tail_log "$LOG_FILE" ;;
+    web)    _tail_log "$VITE_LOG_FILE" ;;
+    *)
+      echo "Usage: aw logs [server|web]" >&2
+      exit 1
+      ;;
+  esac
+}
+
+_tail_log() {
+  local file="$1"
+  if [ ! -f "$file" ]; then
+    echo "No log file found at $file" >&2
     exit 1
   fi
-  tail -f "$LOG_FILE"
+  tail -f "$file"
 }
 
 cmd_tui() {
@@ -114,20 +181,21 @@ case "${1:-}" in
   stop)    cmd_stop ;;
   restart) cmd_restart ;;
   status)  cmd_status ;;
-  logs)    cmd_logs ;;
+  logs)    shift; cmd_logs "$@" ;;
   tui)     shift; cmd_tui "$@" ;;
   *)
     echo "Usage: aw <start|stop|restart|status|logs|tui> [flags]"
     echo ""
-    echo "  start    Start server in background (dev mode)"
-    echo "  stop     Stop background server"
-    echo "  restart  Restart server"
-    echo "  status   Show server status"
-    echo "  logs     Tail server log (Ctrl+C to exit)"
-    echo "  tui      Launch TUI monitor"
+    echo "  start        Start server and web UI in background"
+    echo "  stop         Stop server and web UI"
+    echo "  restart      Restart both"
+    echo "  status       Show server and web UI status"
+    echo "  logs [server|web]  Tail logs (default: server)"
+    echo "  tui          Launch TUI monitor"
     echo ""
     echo "Environment:"
     echo "  SERVER_PORT  Override server port (default: 3001)"
+    echo "  WEB_PORT     Override web UI port (default: 9999)"
     exit 1
     ;;
 esac
