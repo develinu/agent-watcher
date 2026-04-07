@@ -1,6 +1,6 @@
 {
   "name": "agent-watcher",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Real-time monitoring and visualization dashboard for Claude Code sessions",
   "author": "develinu <iwlee.dev@gmail.com>",
