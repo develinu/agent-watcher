@@ -1,7 +1,12 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { SessionSummary } from "@agent-watcher/shared";
-import { formatRelativeTime, formatTokenCount, formatCost } from "../lib/format.js";
+import {
+  formatRelativeTime,
+  formatTokenCount,
+  formatCost,
+  resolveSessionTitle,
+} from "../lib/format.js";
 
 interface SessionListProps {
   readonly sessions: readonly SessionSummary[];
@@ -29,7 +34,7 @@ export function SessionList({
       {sessions.map((session, i) => {
         const isSelected = i === selectedIndex;
         const isActive = activeSessions.has(session.id);
-        const title = session.aiTitle ?? session.summary.slice(0, 40) ?? "Untitled";
+        const title = resolveSessionTitle(session);
         const tokens = formatTokenCount(session.totalInputTokens + session.totalOutputTokens);
         const time = formatRelativeTime(session.lastActiveAt);
         const cost = formatCost(session.estimatedCost);

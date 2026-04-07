@@ -42,6 +42,7 @@ export function App({
     project,
     isLoading: projectLoading,
     error: projectError,
+    refetch: refetchProject,
   } = useProject(host, port, projectIdOverride);
 
   log(debug, "render: loading=", projectLoading, "error=", projectError, "projectId=", projectId);
@@ -94,14 +95,21 @@ export function App({
         setActiveSessions(new Set(event.activeSessions.map((s) => s.sessionId)));
       }
 
-      if (event.type === "session:update" && event.sessionId === selectedSessionId) {
-        refetchSession();
-        refetchAnalysis(); // debounced 5s internally
+      if (event.type === "session:update" && event.projectId === projectId) {
+        void refetchProject();
+        if (event.sessionId === selectedSessionId) {
+          refetchSession();
+          refetchAnalysis(); // debounced 5s internally
+        }
+      }
+
+      if (event.type === "session:new" && event.session.projectId === projectId) {
+        void refetchProject();
       }
     });
 
     return unsubscribe;
-  }, [subscribe, selectedSessionId, refetchSession, refetchAnalysis]);
+  }, [subscribe, selectedSessionId, projectId, refetchSession, refetchAnalysis, refetchProject]);
 
   // Clamp sessionIndex when sessions list changes
   useEffect(() => {

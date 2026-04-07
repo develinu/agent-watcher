@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { Project } from "@agent-watcher/shared";
 
 function cwdToProjectId(cwd: string): string {
@@ -10,6 +10,7 @@ interface UseProjectResult {
   readonly project: Project | null;
   readonly isLoading: boolean;
   readonly error: string | null;
+  readonly refetch: () => void;
 }
 
 export function useProject(
@@ -21,6 +22,18 @@ export function useProject(
   const [project, setProject] = useState<Project | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const refetch = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const res = await fetch(
+        `http://${host}:${port}/api/projects/${encodeURIComponent(projectId)}`
+      );
+      if (res.ok) setProject((await res.json()) as Project);
+    } catch {
+      // ignore transient errors on background refetch
+    }
+  }, [host, port, projectId]);
 
   useEffect(() => {
     const base = `http://${host}:${port}/api`;
@@ -81,5 +94,5 @@ export function useProject(
     };
   }, [host, port, projectIdOverride]);
 
-  return { projectId, project, isLoading, error };
+  return { projectId, project, isLoading, error, refetch };
 }
