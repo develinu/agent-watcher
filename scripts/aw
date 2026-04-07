@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# install.sh가 이 값을 실제 경로로 치환한다
+AGENT_WATCHER_DIR="__PROJECT_DIR__"
+
+PID_DIR="$HOME/.agent-watcher"
+PID_FILE="$PID_DIR/server.pid"
+LOG_FILE="$PID_DIR/server.log"
+SERVER_PORT="${SERVER_PORT:-3001}"
+
+if [ "$AGENT_WATCHER_DIR" = "__PROJECT""_DIR__" ]; then
+  echo "Error: script has not been installed. Run scripts/install.sh first." >&2
+  exit 1
+fi
+
+mkdir -p "$PID_DIR"
+
+_is_running() {
+  [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+}
+
+_cleanup_stale() {
+  if [ -f "$PID_FILE" ] && ! kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    rm -f "$PID_FILE"
+  fi
+}
+
+cmd_start() {
+  _cleanup_stale
+  if _is_running; then
+    echo "agent-watcher is already running (PID: $(cat "$PID_FILE"))"
+    return 1
+  fi
+
+  nohup npx --prefix "$AGENT_WATCHER_DIR" tsx watch \
+    "$AGENT_WATCHER_DIR/server/src/index.ts" \
+    >> "$LOG_FILE" 2>&1 < /dev/null &
+
+  local pid=$!
+  echo $pid > "$PID_FILE"
+  echo "agent-watcher started (PID: $pid, port: $SERVER_PORT)"
+  echo "Logs: $LOG_FILE"
+}
+
+cmd_stop() {
+  _cleanup_stale
+  if ! _is_running; then
+    echo "agent-watcher is not running"
+    return 0
+  fi
+
+  local pid
+  pid=$(cat "$PID_FILE")
+  kill "$pid"
+  local i=0
+  while kill -0 "$pid" 2>/dev/null && [ $i -lt 10 ]; do
+    sleep 0.3; i=$((i+1))
+  done
+  rm -f "$PID_FILE"
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "Warning: process $pid did not exit after 3s; it may still be running." >&2
+  else
+    echo "agent-watcher stopped (PID: $pid)"
+  fi
+}
+
+cmd_restart() {
+  cmd_stop || true
+  cmd_start
+}
+
+cmd_status() {
+  _cleanup_stale
+  if _is_running; then
+    echo "Running (PID: $(cat "$PID_FILE"), port: $SERVER_PORT)"
+    if curl -sf "http://localhost:$SERVER_PORT/api/status" > /dev/null 2>&1; then
+      echo "HTTP: OK"
+    else
+      echo "HTTP: not responding yet (server may be starting up)"
+    fi
+  else
+    echo "Not running"
+  fi
+}
+
+cmd_logs() {
+  if [ ! -f "$LOG_FILE" ]; then
+    echo "No log file found at $LOG_FILE" >&2
+    exit 1
+  fi
+  tail -f "$LOG_FILE"
+}
+
+cmd_tui() {
+  if ! curl -sf "http://localhost:$SERVER_PORT/api/status" > /dev/null 2>&1; then
+    echo "Error: agent-watcher server is not running at localhost:$SERVER_PORT" >&2
+    echo "Run: aw start" >&2
+    exit 1
+  fi
+  npx --prefix "$AGENT_WATCHER_DIR" tsx \
+    "$AGENT_WATCHER_DIR/tui/bin/agent-watch.ts" "$@"
+}
+
+case "${1:-}" in
+  start)   cmd_start ;;
+  stop)    cmd_stop ;;
+  restart) cmd_restart ;;
+  status)  cmd_status ;;
+  logs)    cmd_logs ;;
+  tui)     shift; cmd_tui "$@" ;;
+  *)
+    echo "Usage: aw <start|stop|restart|status|logs|tui> [flags]"
+    echo ""
+    echo "  start    Start server in background (dev mode)"
+    echo "  stop     Stop background server"
+    echo "  restart  Restart server"
+    echo "  status   Show server status"
+    echo "  logs     Tail server log (Ctrl+C to exit)"
+    echo "  tui      Launch TUI monitor"
+    echo ""
+    echo "Environment:"
+    echo "  SERVER_PORT  Override server port (default: 3001)"
+    exit 1
+    ;;
+esac
